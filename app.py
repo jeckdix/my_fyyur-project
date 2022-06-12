@@ -2,8 +2,10 @@
 # Imports
 #----------------------------------------------------------------------------#
 
+from ast import Raise
 from calendar import WEDNESDAY
 import json
+from lib2to3.pgen2.pgen import generate_grammar
 from ntpath import join
 from pickle import FALSE
 import dateutil.parser
@@ -16,6 +18,7 @@ from logging import Formatter, FileHandler
 from flask_wtf import Form
 from forms import *
 from flask_migrate import Migrate
+import datetime
 #----------------------------------------------------------------------------#
 # App Config.
 #----------------------------------------------------------------------------#
@@ -36,48 +39,47 @@ app.config["SQLALCHEMY_DATABASE_URI"] = 'postgresql://babajide@localhost:5432/fy
 # Models.
 #----------------------------------------------------------------------------#
 
-
 class Venue(db.Model):
     __tablename__ = 'venue'
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String, nullable=False)
-    genre = db.Column(db.String(), nullable=False)
-    city = db.Column(db.String(120), nullable=False)
-    state = db.Column(db.String(120), nullable=False)
+    city_id = db.Column(db.Integer, db.ForeignKey('city.id'), nullable=False)
     address = db.Column(db.String(120), nullable=False)
     phone = db.Column(db.String(120), nullable=False)
     image_link = db.Column(db.String(500), nullable=False)
     facebook_link = db.Column(db.String(120), nullable=False)
     website_link = db.Column(db.String(120), nullable=True)
-    seeking_talent = db.Column(db.String(), nullable=True)
+    seeking_talent = db.Column(db.String(255), nullable=True)
     seeking_description = db.Column(db.String(), nullable=True)
-    show = db.relationship('Show', backref='venue_table', lazy=True)
-    venue_genre= db.relationship('Venue_genre', backref='venue_table', lazy=True)
+    shows = db.relationship('Show', backref='venue', lazy=True)
+    venue_genres = db.relationship('Venue_genre', lazy=True)
     
 class City (db.Model):
     __tablename__ = 'city'
     id = db.Column(db.Integer, primary_key =True)
     name = db.Column(db.String(), nullable=False)
+    venues = db.relationship('Venue', backref='city', lazy=True)
     state_id = db.Column(db.Integer, db.ForeignKey('state.id'))
+
 class State (db.Model):
   __tablename__ = 'state'
   id = db.Column(db.Integer, primary_key =True)
-  name = db.Column(db.String(), nullable=False)
-  city = db.relationship('City', backref='state_table', lazy=True)
+  name = db.Column(db.String, nullable=False)
+  cities = db.relationship('City', backref='state', lazy=True)
 
 class Genre (db.Model):
   __tablename__ = 'genre'
   id = db.Column(db.Integer, primary_key =True)
   name = db.Column(db.String(), nullable=False)
-  artist_genre = db.relationship('Artist_genre', backref='genre_table', lazy=True) 
     
 class Artist_genre (db.Model):
     __tablename__ = 'artist_genre'
     id = db.Column(db.Integer, primary_key=True)
     artist_id = db.Column(db.Integer, db.ForeignKey('artist.id'), nullable = False)
     genre_id = db.Column(db.Integer, db.ForeignKey('genre.id'), nullable = False)
-
+    genre = db.relationship('Genre', backref='artist_genre', lazy=True)
+    
 class Venue_genre (db.Model):
     __tablename__ = 'venue_genre'
     id = db.Column(db.Integer, primary_key=True)
@@ -100,17 +102,16 @@ class Artist(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String, nullable=False)
-    city = db.Column(db.String(120), nullable=False)
-    state = db.Column(db.String(120), nullable=False)
+    city_id = db.Column(db.Integer, nullable=False)
+    state_id = db.Column(db.Integer, nullable=False)
     phone = db.Column(db.String(120),  nullable=False)
-    genres = db.Column(db.String(120),  nullable=False)
     image_link = db.Column(db.String(500),  nullable=False)
     facebook_link = db.Column(db.String(120),  nullable=False)
     seeking_venue = db.Column(db.String(), nullable=True)
     website_link = db.Column(db.String(120), nullable=True)
     seeking_description = db.Column(db.String(), nullable=True)
-    show = db.relationship('Show', backref='artists_table', lazy=True)
-    artist_genre= db.relationship('Artist_genre', backref='artist_table', lazy=True)
+    show = db.relationship('Show', backref='artist', lazy=True)
+    artist_genre= db.relationship('Artist_genre', backref='artist', lazy=True)
 
     # TODO: implement any missing fields, as a database migration using Flask-Migrate
 # TODO Implement Show and Artist models, and complete all model relationships and properties, as a database migration.
@@ -124,7 +125,6 @@ class Show (db.Model):
         'venue.id'), nullable=False)
     start_time = db.Column(db.DateTime, nullable=False )
 
-# db.create_all()
 
 #----------------------------------------------------------------------------#
 # Filters.
@@ -155,24 +155,28 @@ def index():
 #  Venues
 #  ----------------------------------------------------------------
 
+
+
 @app.route('/venues')
 def venues():
     # TODO: replace with real venues data.
     # num_upcoming_shows should be aggregated based on number of upcoming shows per venue.
+    all_cities = City.query.join(State).order_by(State.name).all()
+    # all_city_venues = Venue.query.filter_by(city_id=)
     
-    all_venues = Venue.query.all()
-    print(all_venues)
+    the_data = []
     
-    # for venue in all_venues:
+    for city in all_cities:
+      venues = Venue.query.filter_by(city_id=city.id).all()
+      city_dict = {
+        "city": city.name,
+        "state": city.state.name,
+        "venues": venues
+      }
+      the_data.append(city_dict)
       
-  
-    # venue_all = db.session.query(Venue.id, Venue.city, Venue.name, Show.id, Show.artist_id, Show.venue_id).join(Venue).filter(Venue.id == Show.venue_id).all()
-  
-   # print(venue_all)
-    
-    # ans = db.session.query(Survey.description, Question.description, Answer.description)
-    # .join(Survey).join(Question).join(Answer)
-    # .join(Person).filter(Survey.survey_id == survey_id).all()
+      
+
 
     data = [{
         "city": "San Francisco",
@@ -196,7 +200,7 @@ def venues():
         }]
     }]
 
-    return render_template('pages/venues.html', areas=data)
+    return render_template('pages/venues.html', areas=the_data)
 
 
 @app.route('/venues/search', methods=['POST'])
@@ -204,6 +208,19 @@ def search_venues():
     # TODO: implement search on venues with partial string search. Ensure it is case-insensitive.
     # seach for Hop should return "The Musical Hop".
     # search for "Music" should return "The Musical Hop" and "Park Square Live Music & Coffee"
+    
+    q = request.form.get('search_term')
+    search_result = Venue.query.filter(Venue.name.ilike("%" + q + "%")).all()
+    
+    # print(search_result[0])
+    # print(search_result[1])
+    
+    response_data = {
+      "count": len(search_result),
+      "data": search_result
+    }
+    
+    
     response = {
         "count": 1,
         "data": [{
@@ -212,7 +229,7 @@ def search_venues():
             "num_upcoming_shows": 0,
         }]
     }
-    return render_template('pages/search_venues.html', results=response, search_term=request.form.get('search_term', ''))
+    return render_template('pages/search_venues.html', results=response_data, search_term=request.form.get('search_term', ''))
 
 
 @app.route('/venues/<int:venue_id>')
@@ -306,12 +323,101 @@ def show_venue(venue_id):
 #  Create Venue
 #  ----------------------------------------------------------------
 
+def create_city(name, state_id):
+  city = City(
+    name=name,
+    state_id=state_id
+  )
+  try:
+    db.session.add(city)
+    db.session.flush()
+    city_id = city.id
+    db.session.commit()
+    return city_id
+  except:
+    return None
+
+def get_state_id(state):
+  result = State.query.filter_by(name=state).first()
+  
+  if result == None:
+    new_state_data = State(name=state)
+    db.session.add(new_state_data)
+    db.session.commit()
+    new_state =  State.query.filter_by(name=state).first()
+    return new_state.id
+  return result.id
+
+def get_city_id(city, state_id):
+  result = City.query.filter_by(name=city).first()
+  if result == None:
+    print('Getting here')
+    return create_city(city, state_id)
+  return result.id
+
+def get_genre_ids(genres):
+  print("Getting to get_genre_ids ")
+  print(genres)
+  result = Genre.query.filter(Genre.name.in_(genres)).all()
+  print(result)
+  print('point 1')
+  genre_names = []
+  genre_ids = []
+  for genre in result:
+    genre_names.append(genre.name)
+    genre_ids.append(genre.id)
+   
+  if len(genres) == len(genre_ids):
+    print('point 2')
+    return genre_ids
+  
+  new_genre_names =  []
+  create_genre_insert = []
+  for genre in genres:
+    print('point 3')
+    if genre not in genre_names:
+      genre_insert = Genre(name=genre)
+      new_genre_names.append(genre)
+      create_genre_insert.append(genre_insert)
+  
+  db.session.add_all(create_genre_insert)
+  db.session.commit()
+  
+  print('point 4 ngn')
+  print(new_genre_names)
+  newly_inserted = Genre.query.filter(Genre.name.in_(new_genre_names)).all()
+  
+
+  print('point 5')
+  new_genre_ids = []
+
+  for gengen in newly_inserted:
+    new_genre_ids.append(gengen.id)
+  all_genre_ids = genre_ids + new_genre_ids
+  
+  print(all_genre_ids)
+  print('point 5')
+  return all_genre_ids
+
+def build_venue_genre_insert(genre_ids, venue_id):
+  inserts = []
+  for genre_id in genre_ids:
+    insertQuery = Venue_genre(venue_id=venue_id, genre_id=genre_id)
+    inserts.append(insertQuery)
+  return inserts
+ 
+def build_artist_genre_insert(genre_ids, artist_id):
+  inserts = []
+  for genre_id in genre_ids:
+    insertQuery = Artist_genre(artist_id=artist_id, genre_id=genre_id)
+    inserts.append(insertQuery)
+  return inserts 
 
 @app.route('/venues/create', methods=['GET'])
 def create_venue_form():
     form = VenueForm()
     return render_template('forms/new_venue.html', form=form)
-
+  
 
 @app.route('/venues/create', methods=['POST'])
 def create_venue_submission():
@@ -322,29 +428,37 @@ def create_venue_submission():
         address = request.form.get('address')
         state = request.form.get('state')
         phone = request.form.get('phone')
-        genres = request.form.get('genres')
+        genres = request.form.getlist('genres')
         image_link = request.form.get('image_link')
         website_link = request.form.get('website_link')
         facebook_link = request.form.get('facebook_link')
         seeking_talent = request.form.get('seeking_talent')
         seeking_description = request.form.get('seeking_description')
-        data = Venue(
-            name=name,
-            city=city,
-            address = address,
-            state=state,
-            phone=phone,
-            genre=genres,
-            image_link=image_link,
-            website_link = website_link,
-            facebook_link=facebook_link,
-            seeking_talent=seeking_talent,
-            seeking_description=seeking_description,
-        )
-        print(state)
-        db.session.add(data)
-        db.session.commit()
         
+        print(genres)
+        print("Point")
+        state_id = get_state_id(state)
+        city_id = get_city_id(city, state_id)
+        print(city_id)
+        genre_ids = get_genre_ids(genres)
+        venue_data = Venue(
+            name=name,
+            city_id=city_id,
+            address = address,
+            phone=phone,
+            image_link=image_link,
+            facebook_link=facebook_link,
+            website_link = website_link,
+            seeking_talent=seeking_talent,
+            seeking_description=seeking_description
+        )
+        db.session.add(venue_data)
+        db.session.flush()
+        
+        venue_id = venue_data.id
+        genre_query = build_venue_genre_insert(genre_ids, venue_id)
+        db.session.add_all(genre_query)
+        db.session.commit()      
     except Exception as e:
       print('this is the error =>', str(e))
       error = True
@@ -405,6 +519,19 @@ def search_artists():
     # TODO: implement search on artists with partial string search. Ensure it is case-insensitive.
     # seach for "A" should return "Guns N Petals", "Matt Quevado", and "The Wild Sax Band".
     # search for "band" should return "The Wild Sax Band".
+    q = request.form.get("search_term")
+    print(q)
+    search_result = Artist.query.filter(Artist.name.ilike("%" + q + "%")).all()
+    
+    # print(search_result[0])
+    # print(search_result[1])
+    
+    response_data = {
+      "count": len(search_result),
+      "data": search_result
+    }
+    
+    
     response = {
         "count": 1,
         "data": [{
@@ -413,16 +540,75 @@ def search_artists():
             "num_upcoming_shows": 0,
         }]
     }
-    return render_template('pages/search_artists.html', results=response, search_term=request.form.get('search_term', ''))
+    return render_template('pages/search_artists.html', results=response_data, search_term=request.form.get('search_term', ''))
 
-
+def get_genre_name(id):
+  result = Genre.query.filter_by(id=id).first()
+  return result.name
+  
 @app.route('/artists/<int:artist_id>')
 def show_artist(artist_id):
     # shows the artist page with the given artist_id
     # TODO: replace with real artist data from the artist table, using artist_id
     
-    artist = Artist.query.all()
+    # artist = Artist.query.filter_by(id=artist_id).join(City, Artist.city_id==City.id).first()
+    artist_data = {}
+    artist = Artist.query.filter_by(id=artist_id).join(Artist_genre, Artist.id==Artist_genre.artist_id).first()
+    artist_city = City.query.filter_by(id=artist.city_id).join(State, City.state_id==State.id).first()
+    artist_past_shows = Show.query.filter_by(artist_id=artist.id).filter(Show.start_time < datetime.datetime.now()).join(Venue, Show.venue_id==Venue.id).all()
+    artist_future_shows = Show.query.filter_by(artist_id=artist.id).filter(Show.start_time > datetime.datetime.now()).join(Venue, Show.venue_id==Venue.id).all()
+    artist_past_shows_n = []
+    artist_future_shows_n = []
     
+    for show in artist_past_shows:
+      this_show = {
+        "venue_id": show.venue_id,
+        "venue_name": show.venue.name,
+        "venue_image_link": show.venue.image_link,
+        "start_time": str(show.start_time)
+      }
+      artist_past_shows_n.append(this_show)
+
+    for show in artist_future_shows:
+      this_show = {
+        "venue_id": show.venue_id,
+        "venue_name": show.venue.name,
+        "venue_image_link": show.venue.image_link,
+        "start_time": str(show.start_time)
+      }
+      artist_future_shows_n.append(this_show)
+    
+    # artist_past_shows = Show.query.filter(artist_id=artist.id).all()
+    
+  
+    
+    print(artist_past_shows)
+    print(artist_future_shows)
+    
+    
+    print(artist_city)
+    print(artist_city.name)
+    print(artist_city.state)
+    print(artist.id)
+    artist_data['id']= artist.id
+    artist_data["name"] = artist.name
+    artist_data["genres"] = [get_genre_name(genre.id) for genre in artist.artist_genre]
+    artist_data['phone'] = artist.phone
+    artist_data["city"] = artist_city.name
+    artist_data["state"] = artist_city.state.name
+    artist_data['image_link']= artist.image_link
+    artist_data['facebook_link']= artist.facebook_link
+    artist_data['website_link']= artist.website_link
+    artist_data['seeking_talent'] = artist.seeking_venue
+    artist_data['seeking_description'] = artist.seeking_description
+    artist_data['past_shows'] = artist_past_shows_n
+    artist_data['upcoming_shows'] = artist_future_shows_n
+    artist_data['past_shows_count'] = len(artist_past_shows_n)
+    artist_data['upcoming_shows_count'] = len(artist_future_shows_n)
+     
+    
+    # .join(Genre, Artist_genre.id==Genre.id).first()
+  
     data1 = {
         "id": 4,
         "name": "Guns N Petals",
@@ -494,9 +680,9 @@ def show_artist(artist_id):
         "past_shows_count": 0,
         "upcoming_shows_count": 3,
     }
-    data = list(filter(lambda d: d['id'] ==
-                artist_id, [data1, data2, data3]))[0]
-    return render_template('pages/show_artist.html', artist=data)
+    # data = list(filter(lambda d: d['id'] ==
+    #             artist_id, [data1, data2, data3]))[0]
+    return render_template('pages/show_artist.html', artist=artist_data)
 
 #  Update
 #  ----------------------------------------------------------------
@@ -566,6 +752,7 @@ def create_artist_form():
     form = ArtistForm()
     return render_template('forms/new_artist.html', form=form)
 
+# // 
 
 @app.route('/artists/create', methods=['POST'])
 def create_artist_submission():
@@ -578,26 +765,36 @@ def create_artist_submission():
         city = request.form.get('city')
         state = request.form.get('state')
         phone = request.form.get('phone')
-        genres = request.form.get('genres')
+        genres = request.form.getlist('genres')
         image_link = request.form.get('image_link')
         website_link = request.form.get('website_link')
         facebook_link = request.form.get('facebook_link')
         seeking_venue = request.form.get('seeking_venue')
         seeking_description = request.form.get('seeking_description')
-        data = Artist(
+        
+        state_id = get_state_id(state)
+        city_id = get_city_id(city, state_id)
+        genre_ids = get_genre_ids(genres)
+        
+        
+        artist = Artist(
             name=name,
-            city=city,
-            state=state,
+            city_id=city_id,
+            state_id=state_id,
             phone=phone,
-            genres=genres,
             image_link=image_link,
             website_link = website_link,
             facebook_link=facebook_link,
             seeking_venue=seeking_venue,
             seeking_description=seeking_description,
         )
-        print(state)
-        db.session.add(data)
+        
+        db.session.add(artist)
+        db.session.flush()
+        
+        artist_id = artist.id
+        genre_query = build_artist_genre_insert(genre_ids, artist_id)
+        db.session.add_all(genre_query)
         db.session.commit()
         
     except Exception as e:
@@ -670,7 +867,7 @@ def create_shows():
     # renders form. do not touch.
     form = ShowForm()
     return render_template('forms/new_show.html', form=form)
-
+  
 
 @app.route('/shows/create', methods=['POST'])
 def create_show_submission():
